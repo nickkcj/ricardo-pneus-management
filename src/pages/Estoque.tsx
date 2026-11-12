@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   Pencil,
   Trash2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -176,6 +178,101 @@ export default function EstoquePage() {
 
   const estoqueAlerta = (p: Produto) => p.quantidade <= p.quantidade_minima;
 
+  // Agrupamento por categoria (colapsado por padrão; busca/filtro abre tudo)
+  const [abertas, setAbertas] = useState<Set<string>>(new Set());
+  const conhecidas = new Set(CATEGORIAS.map((c) => c.value));
+  const grupos = [
+    ...CATEGORIAS.map((c) => ({
+      value: c.value,
+      label: c.label,
+      itens: produtos.filter((p) => p.categoria === c.value),
+    })),
+    {
+      value: "OUTROS",
+      label: "Outros",
+      itens: produtos.filter((p) => !conhecidas.has(p.categoria)),
+    },
+  ].filter((g) => g.itens.length > 0);
+  const forcarAberto = busca.trim() !== "" || filtroCategoria !== "";
+  const estaAberta = (cat: string) => forcarAberto || abertas.has(cat);
+
+  function toggleGrupo(cat: string) {
+    setAbertas((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
+
+  function renderLinha(p: Produto) {
+    return (
+      <tr key={p.id} className="border-t hover:bg-muted/30">
+        <td className="p-3">
+          <div className="font-medium">{p.nome}</div>
+          {p.subcategoria && (
+            <span className="text-xs text-muted-foreground">
+              {SUBCAT_LABEL[p.subcategoria] || p.subcategoria}
+            </span>
+          )}
+        </td>
+        <td className="text-center p-3">
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => ajustarEstoque(p.id, "SAIDA", 1)}
+              disabled={p.quantidade <= 0}
+            >
+              <Minus className="h-3 w-3" />
+            </Button>
+            <span className="w-10 text-center font-mono font-bold">
+              {p.quantidade}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => ajustarEstoque(p.id, "ENTRADA", 1)}
+            >
+              <Plus className="h-3 w-3" />
+            </Button>
+          </div>
+        </td>
+        <td className="text-right p-3 font-mono">R$ {p.preco_venda.toFixed(2)}</td>
+        <td className="text-center p-3">
+          {estoqueAlerta(p) && (
+            <Badge variant="destructive" className="gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Baixo
+            </Badge>
+          )}
+        </td>
+        <td className="text-center p-3">
+          <div className="flex justify-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => abrirEdicao(p)}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive"
+              onClick={() => setConfirmDelete(p.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   if (loading) return <PageLoader />;
 
   return (
@@ -219,101 +316,80 @@ export default function EstoquePage() {
         </Select>
       </div>
 
-      {/* Tabela de produtos */}
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="text-left p-3 font-medium">Produto</th>
-              <th className="text-left p-3 font-medium">Categoria</th>
-              <th className="text-center p-3 font-medium">Qtd</th>
-              <th className="text-right p-3 font-medium">Preço Venda</th>
-              <th className="text-center p-3 font-medium">Estoque</th>
-              <th className="text-center p-3 font-medium">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {produtos.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="text-center p-8 text-muted-foreground">
-                  Nenhum produto encontrado
-                </td>
-              </tr>
-            ) : (
-              produtos.map((p) => (
-                <tr key={p.id} className="border-t hover:bg-muted/30">
-                  <td className="p-3">
-                    <div className="font-medium">{p.nome}</div>
-                    {p.subcategoria && (
-                      <span className="text-xs text-muted-foreground">
-                        {p.subcategoria}
-                      </span>
+      {/* Produtos agrupados por categoria */}
+      {grupos.length === 0 ? (
+        <div className="border rounded-lg text-center p-8 text-muted-foreground">
+          Nenhum produto encontrado
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {!forcarAberto && (
+            <div className="flex justify-end gap-2 text-sm">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setAbertas(new Set(grupos.map((g) => g.value)))}
+              >
+                Expandir tudo
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setAbertas(new Set())}>
+                Recolher tudo
+              </Button>
+            </div>
+          )}
+          {grupos.map((g) => {
+            const aberta = estaAberta(g.value);
+            const baixos = g.itens.filter(estoqueAlerta).length;
+            const unidades = g.itens.reduce((acc, p) => acc + p.quantidade, 0);
+            return (
+              <div key={g.value} className="border rounded-lg overflow-hidden">
+                <div
+                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/30 select-none"
+                  onClick={() => toggleGrupo(g.value)}
+                >
+                  <div className="flex items-center gap-3">
+                    {aberta ? (
+                      <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
                     )}
-                  </td>
-                  <td className="p-3">
-                    <Badge variant="secondary">{p.categoria}</Badge>
-                  </td>
-                  <td className="text-center p-3">
-                    <div className="flex items-center justify-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => ajustarEstoque(p.id, "SAIDA", 1)}
-                        disabled={p.quantidade <= 0}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="w-10 text-center font-mono font-bold">
-                        {p.quantidade}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => ajustarEstoque(p.id, "ENTRADA", 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </td>
-                  <td className="text-right p-3 font-mono">
-                    R$ {p.preco_venda.toFixed(2)}
-                  </td>
-                  <td className="text-center p-3">
-                    {estoqueAlerta(p) && (
-                      <Badge variant="destructive" className="gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        Baixo
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="text-center p-3">
-                    <div className="flex justify-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => abrirEdicao(p)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => setConfirmDelete(p.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                    <p className="font-semibold text-base">{g.label}</p>
+                    <Badge variant="secondary">
+                      {g.itens.length} {g.itens.length === 1 ? "produto" : "produtos"}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {unidades} un. em estoque
+                    </span>
+                  </div>
+                  {baixos > 0 && (
+                    <Badge variant="destructive" className="gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      {baixos} {baixos === 1 ? "baixo" : "baixos"}
+                    </Badge>
+                  )}
+                </div>
+
+                {aberta && (
+                  <div className="border-t">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-3 font-medium">Produto</th>
+                          <th className="text-center p-3 font-medium">Qtd</th>
+                          <th className="text-right p-3 font-medium">Preço Venda</th>
+                          <th className="text-center p-3 font-medium">Estoque</th>
+                          <th className="text-center p-3 font-medium">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>{g.itens.map(renderLinha)}</tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Dialog de cadastro/edição */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

@@ -68,15 +68,33 @@ export default function BackupPage() {
     }
   }
 
-  async function salvarConfig() {
-    if (!pastaDestino) {
+  // Salva a pasta assim que ela é escolhida: antes dependia de um clique em
+  // "Salvar" separado e, se esquecido, o backup rodava na pasta antiga
+  // (que podia nem existir mais) e falhava com "pasta não encontrada".
+  async function selecionarPasta() {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Selecionar pasta de backup",
+    });
+    if (!selected) return;
+    setPastaDestino(selected);
+    await salvarConfig(selected);
+  }
+
+  async function salvarConfig(pasta: string = pastaDestino) {
+    if (!pasta) {
       toast.error("Informe a pasta de destino");
       return;
     }
     try {
-      await api.post("/backup/config", { pasta_destino: pastaDestino });
-      setPastaSalva(pastaDestino);
-      toast.success("Configuração salva");
+      const r = await api.post<{ ok: boolean; pasta_destino: string }>(
+        "/backup/config",
+        { pasta_destino: pasta }
+      );
+      setPastaDestino(r.pasta_destino);
+      setPastaSalva(r.pasta_destino);
+      toast.success("Pasta de backup configurada");
       carregarHistorico();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao salvar");
@@ -84,13 +102,19 @@ export default function BackupPage() {
   }
 
   async function executarBackup() {
+    if (!pastaDestino) {
+      toast.error("Selecione a pasta de destino primeiro");
+      return;
+    }
     setExecutando(true);
     try {
+      // Manda a pasta atual da tela: o backend usa (e grava) exatamente ela.
       const result = await api.post<{
         ok: boolean;
         arquivo: string;
         tamanho_bytes: number;
-      }>("/backup/executar", {});
+      }>("/backup/executar", { pasta_destino: pastaDestino });
+      setPastaSalva(pastaDestino);
       toast.success(`Backup criado: ${result.arquivo}`);
       carregarHistorico();
     } catch (e) {
@@ -128,16 +152,7 @@ export default function BackupPage() {
               <Label>Caminho da Pasta</Label>
               <div
                 className="flex items-center h-11 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm cursor-pointer hover:bg-muted/30 transition-colors"
-                onClick={async () => {
-                  const selected = await open({
-                    directory: true,
-                    multiple: false,
-                    title: "Selecionar pasta de backup",
-                  });
-                  if (selected) {
-                    setPastaDestino(selected);
-                  }
-                }}
+                onClick={selecionarPasta}
               >
                 <FolderOpen className="h-4 w-4 text-muted-foreground mr-2 shrink-0" />
                 <span className={pastaDestino ? "text-foreground" : "text-muted-foreground"}>
@@ -146,9 +161,9 @@ export default function BackupPage() {
               </div>
             </div>
             <div className="flex items-end">
-              <Button onClick={salvarConfig} size="lg" className="gap-2">
-                <Check className="h-4 w-4" />
-                Salvar
+              <Button onClick={selecionarPasta} size="lg" variant="outline" className="gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Escolher pasta
               </Button>
             </div>
           </div>
@@ -174,7 +189,7 @@ export default function BackupPage() {
             onClick={executarBackup}
             size="lg"
             className="gap-2"
-            disabled={!pastaSalva || executando}
+            disabled={!pastaDestino || executando}
           >
             {executando ? (
               <RefreshCw className="h-5 w-5 animate-spin" />
@@ -183,9 +198,9 @@ export default function BackupPage() {
             )}
             {executando ? "Executando..." : "Fazer Backup Agora"}
           </Button>
-          {!pastaSalva && (
+          {!pastaDestino && (
             <p className="text-sm text-muted-foreground mt-2">
-              Configure a pasta de destino primeiro.
+              Escolha a pasta de destino primeiro.
             </p>
           )}
         </CardContent>
